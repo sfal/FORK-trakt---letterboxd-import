@@ -21,6 +21,14 @@ CODE = '' #Fill in your code, which you get after authorization with your trakt 
 CHECK_IMDB_ID = False # Useful for clearly identifying the movie in case the title at letterboxd is dfferent from imdb
 API_URL_FOR_IMDB_ID = 'http://www.omdbapi.com/?apikey=YOURAPIKEY&t=' #Fill in your Api key if you want to use omdbapi
 
+def get_headers(auth_token):
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + auth_token,
+        'trakt-api-version': '2',
+        'trakt-api-key': CLIEN_ID
+    }
+
 def check_authentication():
     if os.path.isfile('auth.json'):
         with open('auth.json') as auth_file:
@@ -136,12 +144,7 @@ def send_data(movie_data, auth_token, diary=True):
     json_data = json.dumps(pydata)
     clen = len(json_data)
 
-    headers = {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer ' + auth_token,
-    'trakt-api-version': '2',
-    'trakt-api-key': CLIEN_ID
-    }
+    headers = get_headers(auth_token)
     req = urllib2.Request('https://api.trakt.tv/sync/history', data=json_data.encode('utf-8'), headers=headers)
 
     f = urllib2.urlopen(req)
@@ -170,6 +173,24 @@ def get_imdb_info(title, year=None):
     data = url.read()
     res = json.loads(data)
     return res
+
+def check_is_movie_in_trakt(title, year, auth_token):
+    headers = get_headers(auth_token)
+    search_url = f'https://api.trakt.tv/search/movie?query={urllib.parse.quote_plus(title)}&years={year}'
+    req = urllib2.Request(search_url, headers=headers)
+    response = urllib2.urlopen(req)
+    data = json.load(response)
+    for movie in data:
+        if movie['movie']['title'].lower() == title.lower() and movie['movie']['year'] == int(year):
+            # Check if it's already in the user history
+            movie_id = movie['movie']['ids']['trakt']
+            history_url = f'https://api.trakt.tv/users/me/history/movies/{movie_id}'
+            history_req = urllib2.Request(history_url, headers=headers)
+            history_response = urllib2.urlopen(history_req)
+            history_data = json.load(history_response)
+            if history_data:
+                return True
+    return False
 
 def usage(argv0):
     print('usage: '+argv0+' [OPTION] FILE ...')
@@ -226,6 +247,8 @@ if __name__ == "__main__":
         #print time.strftime(date_played, '%Y-%m-%d %H:%M')
         if not year: #if for some reason a year information is not available the entry is skipped
             skipped.append(title)
+        elif not use_diary_file and check_is_movie_in_trakt(title, year, token):
+            print(f'Skipping {title} ({year}), already in Trakt watched history.')
         else:
             movie_data.append({'title':title,'year':int(year),'watched_at': date_played,'rating':rating,'rated_at':date_played,'ids':{'imdb':imdbid} })
 
